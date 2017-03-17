@@ -5,8 +5,6 @@ import sys
 import argparse
 import re
 import psutil
-import time
-import os
 
 # Exit codes expected by Nagios
 STATUS_OK = 0
@@ -23,7 +21,7 @@ def parse_limits(limits):
     critical = int(limits[1])
     return warning, critical
 
-def check_disk(limits):
+def check_disk(limits, all):
     """
     Check disk usage
     """
@@ -33,8 +31,8 @@ def check_disk(limits):
 
     try:
         warning, critical = parse_limits(limits)
-        for part in psutil.disk_partitions(all=False):
-            print("- Checking device: {}".format(part.device))
+        for part in psutil.disk_partitions(all):
+            print("- Checking device: {} (Mounted on {})".format(part.device, part.mountpoint))
             try:
                 usage = psutil.disk_usage(part.mountpoint)
                 usage_percentage = usage.percent
@@ -128,27 +126,37 @@ def main():
     Main routine
     """
 
-    script_description = "Script intended to be used by Nagios' services. Example: {} --disk 90,95".format(os.path.basename(__file__))
-    parser = argparse.ArgumentParser(description=script_description)
+    parser = argparse.ArgumentParser(description="Script intended to be used by Nagios' services")
 
-    parser.add_argument("-d", "--disk", type=special_string, help="Enable disk check specifying warning and critical values (e.g. 90,95)")
-    parser.add_argument("-m", "--memory", type=special_string, help="Enable memory check specifying warning and critical values (e.g. 90,95)")
-    parser.add_argument("-c", "--cpu", type=special_string, help="Enable CPU check specifying warning and critical values (e.g. 90,95)")
+    parser.add_argument("-a", "--alldisk", type=special_string, help="Enable all disks check and specify warning and critical values (e.g. 90,95)")
+    parser.add_argument("-l", "--localdisk", type=special_string, help="Enable local disk check and specify warning and critical values (e.g. 90,95)")
+    parser.add_argument("-m", "--memory", type=special_string, help="Enable memory check and specify warning and critical values (e.g. 90,95)")
+    parser.add_argument("-c", "--cpu", type=special_string, help="Enable CPU check and specify warning and critical values (e.g. 90,95)")
 
     args = parser.parse_args()
 
     print("Parameters provided:")
     print("-" * 20)
-    print("Disk: {}".format(args.disk))
+    print("All Disk: {}".format(args.alldisk))
+    print("Local Disk: {}".format(args.localdisk))
     print("Memory: {}".format(args.memory))
     print("CPU: {}".format(args.cpu))
     print("-" * 20)
 
     ret = STATUS_OK
 
-    # Check disk
-    if args.disk:
-        ret = check_disk(args.disk)
+    # Check all disks
+    if args.alldisk:
+        ret = check_disk(args.alldisk, True)
+
+    # Check local disk
+    if (ret != STATUS_CRITICAL) and (args.localdisk):
+        if args.alldisk:
+            print("Skipping local disk check as all disk check is enabled...")
+        else:
+            disk_ret = check_disk(args.localdisk, False)
+            if disk_ret != STATUS_OK:
+                ret = disk_ret
 
     # Check memory
     if (ret != STATUS_CRITICAL) and (args.memory):
