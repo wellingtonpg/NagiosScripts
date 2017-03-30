@@ -29,10 +29,13 @@ def check_disk(limits, all):
 
     ret = STATUS_OK
 
+    # Store problems to print a summary
+    problems_summary = []
+
     try:
-        warning, critical = parse_limits(limits)
+        warning_limit, critical_limit = parse_limits(limits)
         for part in psutil.disk_partitions(all):
-            print("- Checking device: {} (Mounted on {})".format(part.device, part.mountpoint))
+            print("- Checking device: {} (mounted on {})".format(part.device, part.mountpoint))
             try:
                 usage = psutil.disk_usage(part.mountpoint)
                 usage_percentage = usage.percent
@@ -41,14 +44,30 @@ def check_disk(limits, all):
                 print("-- Ignoring OSError exception: {}".format(e.strerror))
                 continue
             print("-- Disk usage percentage: {}".format(usage_percentage))
-            if usage_percentage >= warning:
-                ret = STATUS_WARNING
-            if usage_percentage >= critical:
+            if usage_percentage >= critical_limit:
+                problems_summary.append((part.device, part.mountpoint, usage_percentage))
                 ret = STATUS_CRITICAL
-                break
+            elif usage_percentage >= warning_limit:
+                # Do not add to summary list if already added by critical check above
+                if usage_percentage < critical_limit:
+                    problems_summary.append((part.device, part.mountpoint, usage_percentage))
+                if ret == STATUS_OK:
+                    ret = STATUS_WARNING
     except Exception as e:
         print("- Error: {}".format(e.message))
         ret = STATUS_UNKNOWN
+
+    # Print a summary of problems
+    if len(problems_summary) > 0:
+        print("")
+        print("Summary:")
+        print("-" * 20)
+        for summary in problems_summary:
+            device, mountpoint, usage_percentage = summary
+            print('{:8} alert for {} (mounted on {}) - {}% is equal or greater than {}%'.format("CRITICAL" if usage_percentage >= critical_limit else "WARNING",
+                device, mountpoint, usage_percentage, critical_limit if usage_percentage >= critical_limit else warning_limit))
+        print("-" * 20)
+        print("")
 
     print("- Returning code {}".format(ret))
 
